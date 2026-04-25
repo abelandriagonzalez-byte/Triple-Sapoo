@@ -52,7 +52,7 @@ st.markdown("<h1 style='color: #ccff00;'>TRIPLE SAPO</h1>", unsafe_allow_html=Tr
 st.markdown("<h3 style='color: #ffff00;'>DE SU LOTERÍA DE MARA</h3>", unsafe_allow_html=True)
 
 # Cálculo de Próximo Sorteo
-horarios = ["13:05:00", "17:05:00", "21:05:00"]
+horarios = ["13:05:00", "17:05:00", "21:45:00"]
 futuros = []
 for h in horarios:
     t = datetime.strptime(h, "%H:%M:%S").replace(year=ahora.year, month=ahora.month, day=ahora.day)
