@@ -51,8 +51,8 @@ st.markdown("<h1 style='color: #ccff00;'>TRIPLE SAPO</h1>", unsafe_allow_html=Tr
 st.markdown("<h3 style='color: #ffff00;'>DE SU LOTERÍA DE MARA</h3>", unsafe_allow_html=True)
 
 # Horarios de los sorteos
-horarios_metas = ["13:05:00", "17:05:00", "21:05:00"]
-h_labels = ["01:05 PM", "05:05 PM", "09:05 PM"]
+horarios_metas = ["13:05:00", "17:05:00", "21:58:00"]
+h_labels = ["01:05 PM", "05:05 PM", "09:58 PM"]
 
 # Cálculo de Próximo Sorteo para el contador
 futuros = []
