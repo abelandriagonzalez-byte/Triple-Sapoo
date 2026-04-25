@@ -97,7 +97,7 @@ if segundos_faltantes <= 0:
     # Determinamos qué horario toca
     if ahora.hour == 13: h_sorteo = "01:05 PM"
     elif ahora.hour == 17: h_sorteo = "05:05 PM"
-    elif ahora.hour == 21: h_sorteo = "09:05 PM"
+    elif ahora.hour == 21: h_sorteo = "09:45 PM"
     else: h_sorteo = None
     
     if h_sorteo and not obtener_datos_hoy(h_sorteo):
