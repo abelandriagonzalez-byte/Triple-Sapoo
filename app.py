@@ -2,17 +2,15 @@ import streamlit as st
 import sqlite3
 import random
 from datetime import datetime, timedelta
+from streamlit_autorefresh import st_autorefresh
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title="Triple Sapo - Monitor Oficial", layout="wide")
 
-# --- MOTOR DE MOVIMIENTO (Refresco cada 1 segundo) ---
-# Intentamos usar un script de JS simple para evitar parpadeos excesivos
-st.empty() 
-from streamlit_autorefresh import st_autorefresh
+# Motor de refresco automático cada 1 segundo
 st_autorefresh(interval=1000, key="reloj_refresco")
 
-# --- ESTILOS VISUALES (Triple Sapo) ---
+# --- ESTILOS VISUALES ---
 st.markdown("""
     <style>
     .stApp { background-color: #1a3c1a; color: white; }
@@ -35,7 +33,8 @@ conn = conectar_db()
 
 def obtener_datos_hoy(hora_etiqueta):
     # Ajuste de hora Venezuela (UTC-4)
-    fecha_hoy = (datetime.now() - timedelta(hours=4)).strftime("%Y-%m-%d")
+    ahora_ven = datetime.now() - timedelta(hours=4)
+    fecha_hoy = ahora_ven.strftime("%Y-%m-%d")
     cursor = conn.cursor()
     cursor.execute("SELECT a, b, c, signo FROM resultados WHERE fecha=? AND hora=?", (fecha_hoy, hora_etiqueta))
     return cursor.fetchone()
@@ -51,10 +50,13 @@ with col_t2:
 st.markdown("<h1 style='color: #ccff00;'>TRIPLE SAPO</h1>", unsafe_allow_html=True)
 st.markdown("<h3 style='color: #ffff00;'>DE SU LOTERÍA DE MARA</h3>", unsafe_allow_html=True)
 
-# Cálculo de Próximo Sorteo
-horarios = ["13:05:00", "17:05:00", "21:45:00"]
+# Horarios de los sorteos
+horarios_metas = ["13:05:00", "17:05:00", "21:05:00"]
+h_labels = ["01:05 PM", "05:05 PM", "09:05 PM"]
+
+# Cálculo de Próximo Sorteo para el contador
 futuros = []
-for h in horarios:
+for h in horarios_metas:
     t = datetime.strptime(h, "%H:%M:%S").replace(year=ahora.year, month=ahora.month, day=ahora.day)
     if t < ahora: t += timedelta(days=1)
     futuros.append(t)
@@ -74,7 +76,6 @@ st.markdown("<p style='text-align: center; font-size: 20px;'>PRÓXIMO SORTEO EN<
 # --- TABLERO DE RESULTADOS ---
 st.markdown("<br>", unsafe_allow_html=True)
 cols = st.columns(3)
-h_labels = ["01:05 PM", "05:05 PM", "09:45 PM"]
 colores = ["#ffcc00", "#00ffcc", "#ff3366"]
 
 for i, h in enumerate(h_labels):
@@ -88,28 +89,28 @@ for i, h in enumerate(h_labels):
             st.markdown(f"<h2 style='color: #ccff00;'>⭐ {res[3].upper()} ⭐</h2>", unsafe_allow_html=True)
         else:
             st.markdown("<p style='font-size: 20px; color: #888;'>Esperando...</p>", unsafe_allow_html=True)
-        
         st.markdown("</div>", unsafe_allow_html=True)
 
-# --- LÓGICA DE SORTEO AUTOMÁTICO ---
-# Si el contador llega a 0, genera un sorteo si no existe
-if segundos_faltantes <= 0:
-    # Determinamos qué horario toca
-    if ahora.hour == 13: h_sorteo = "01:05 PM"
-    elif ahora.hour == 17: h_sorteo = "05:05 PM"
-    elif ahora.hour == 21: h_sorteo = "09:45 PM"
-    else: h_sorteo = None
+# --- LÓGICA DE SORTEO AUTOMÁTICO (RETROACTIVO) ---
+for idx, h_meta in enumerate(horarios_metas):
+    t_sorteo = datetime.strptime(h_meta, "%H:%M:%S").replace(year=ahora.year, month=ahora.month, day=ahora.day)
+    label_actual = h_labels[idx]
     
-    if h_sorteo and not obtener_datos_hoy(h_sorteo):
+    # Si ya pasó la hora del sorteo y NO hay resultado en la DB
+    if ahora >= t_sorteo and not obtener_datos_hoy(label_actual):
         a = "".join([str(random.randint(0, 9)) for _ in range(3)])
         b = "".join([str(random.randint(0, 9)) for _ in range(3)])
         c = "".join([str(random.randint(0, 9)) for _ in range(3)])
         signos = ["Aries", "Tauro", "Géminis", "Cáncer", "Leo", "Virgo", "Libra", "Escorpio", "Sagitario", "Capricornio", "Acuario", "Piscis"]
         z = random.choice(signos)
         
-        fecha_h = ahora.strftime("%Y-%m-%d")
-        conn.execute("INSERT INTO resultados (fecha, hora, a, b, c, signo) VALUES (?,?,?,?,?,?)", (fecha_h, h_sorteo, a, b, c, z))
+        fecha_str = ahora.strftime("%Y-%m-%d")
+        with conectar_db() as database:
+            database.execute("INSERT INTO resultados (fecha, hora, a, b, c, signo) VALUES (?,?,?,?,?,?)", 
+                           (fecha_str, label_actual, a, b, c, z))
+            database.commit()
+        
         st.balloons()
         st.rerun()
 
-st.sidebar.info("El sorteo se realiza automáticamente a las horas programadas.")
+st.sidebar.info("Ajuste de hora: Venezuela (UTC-4)")
