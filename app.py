@@ -74,7 +74,7 @@ st.markdown("<p style='text-align: center; font-size: 20px;'>PRÓXIMO SORTEO EN<
 # --- TABLERO DE RESULTADOS ---
 st.markdown("<br>", unsafe_allow_html=True)
 cols = st.columns(3)
-h_labels = ["01:05 PM", "05:05 PM", "09:05 PM"]
+h_labels = ["01:05 PM", "05:05 PM", "09:45 PM"]
 colores = ["#ffcc00", "#00ffcc", "#ff3366"]
 
 for i, h in enumerate(h_labels):
