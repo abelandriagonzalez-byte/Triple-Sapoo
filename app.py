@@ -92,8 +92,8 @@ st.markdown("<div class='titulo-principal'>TRIPLE SAPO</div>", unsafe_allow_html
 st.markdown("<div class='subtitulo'>DE SU LOTERÍA DE MARA</div>", unsafe_allow_html=True)
 
 # 3. Contador Regresivo
-horarios_metas = ["13:05:00", "17:05:00", "22:15:00"]
-h_labels = ["01:05 PM", "05:05 PM", "10:15 PM"]
+horarios_metas = ["13:05:00", "17:05:00", "22:21:00"]
+h_labels = ["01:05 PM", "05:05 PM", "10:21 PM"]
 
 futuros = []
 for h in horarios_metas:
