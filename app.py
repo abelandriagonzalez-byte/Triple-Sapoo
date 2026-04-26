@@ -1,7 +1,114 @@
 import streamlit as st
 import sqlite3
 import random
-import time
+impoimport streamlit as st
+import sqlite3
+import random
+from datetime import datetime, timedelta
+from streamlit_autorefresh import st_autorefresh
+
+# --- CONFIGURACIÓN DE PÁGINA ---
+st.set_page_config(page_title="Triple Sapo - Monitor", layout="wide")
+
+# Refresco cada 1 segundo
+st_autorefresh(interval=1000, key="reloj_global")
+
+# --- ESTILOS CSS (SÓLO TEXTO Y COLORES) ---
+st.markdown("""
+    <style>
+    .stApp { background-color: #1a3c1a; color: white; }
+    .timer-digital { font-size: 90px !important; color: #ccff00; text-align: center; font-weight: bold; font-family: 'Courier New'; }
+    .hora-label { font-size: 35px; font-weight: bold; text-align: center; margin-top: 20px; }
+    .triples-texto { font-size: 26px; text-align: center; margin: 10px 0; letter-spacing: 3px; color: #ffffff; }
+    .signo-gigante { font-size: 55px; text-align: center; color: #ccff00; font-weight: bold; font-family: 'Arial Black'; margin-top: -10px; }
+    .espera-texto { font-size: 22px; text-align: center; color: #558855; font-style: italic; }
+    </style>
+    """, unsafe_allow_html=True)
+
+# --- BASE DE DATOS ---
+def conectar_db():
+    conn = sqlite3.connect("sorteos_web.db", check_same_thread=False)
+    conn.execute('CREATE TABLE IF NOT EXISTS resultados (id INTEGER PRIMARY KEY AUTOINCREMENT, fecha TEXT, hora TEXT, a TEXT, b TEXT, c TEXT, signo TEXT)')
+    return conn
+
+def obtener_datos(fecha, hora_etiqueta):
+    conn = conectar_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT a, b, c, signo FROM resultados WHERE fecha=? AND hora=?", (fecha, hora_etiqueta))
+    res = cursor.fetchone()
+    conn.close()
+    return res
+
+# --- TIEMPO VENEZUELA (UTC-4) ---
+ahora = datetime.now() - timedelta(hours=4)
+fecha_hoy = ahora.strftime("%Y-%m-%d")
+fecha_ayer = (ahora - timedelta(days=1)).strftime("%Y-%m-%d")
+
+horarios_metas = ["13:05:00", "17:05:00", "21:05:00"]
+h_labels = ["01:05 PM", "05:05 PM", "09:05 PM"]
+
+# Calcular próximo sorteo
+futuros = []
+for h in horarios_metas:
+    t = datetime.strptime(h, "%H:%M:%S").replace(year=ahora.year, month=ahora.month, day=ahora.day)
+    if t < ahora: t += timedelta(days=1)
+    futuros.append(t)
+
+proximo_t = min(futuros)
+segundos_faltantes = int((proximo_t - ahora).total_seconds())
+
+# --- INTERFAZ ---
+st.markdown(f"<p style='text-align: right; color: #aaa; margin:0;'>{ahora.strftime('%I:%M:%S %p')}</p>", unsafe_allow_html=True)
+st.markdown("<h1 style='text-align: center; color: #ccff00; font-size: 65px; margin:0;'>TRIPLE SAPO</h1>", unsafe_allow_html=True)
+st.markdown("<p style='text-align: center; color: #ffff00; font-size: 22px;'>DE SU LOTERÍA DE MARA</p>", unsafe_allow_html=True)
+
+# Contador
+h_f, rem = divmod(segundos_faltantes, 3600)
+m_f, s_f = divmod(rem, 60)
+st.markdown(f"<div class='timer-digital'>{h_f:02d}:{m_f:02d}:{s_f:02d}</div>", unsafe_allow_html=True)
+st.markdown("<p style='text-align: center; color: #888; font-size: 20px; margin-top:-15px;'>PRÓXIMO SORTEO</p>", unsafe_allow_html=True)
+
+st.write("---")
+
+# --- MOSTRAR RESULTADOS (SIN CUADROS) ---
+cols = st.columns(3)
+colores_horas = ["#ffcc00", "#00ffcc", "#ff3366"]
+
+for i, h in enumerate(h_labels):
+    with cols[i]:
+        res = obtener_datos(fecha_hoy, h)
+        # 1. Mostrar la hora
+        st.markdown(f"<p class='hora-label' style='color: {colores_horas[i]};'>{h}</p>", unsafe_allow_html=True)
+        
+        if res:
+            # 2. Mostrar los números triples (A, B, C)
+            st.markdown(f"<p class='triples-texto'>A: {res[0]} | B: {res[1]} | C: {res[2]}</p>", unsafe_allow_html=True)
+            # 3. Mostrar el Signo en gigante
+            st.markdown(f"<p class='signo-gigante'>⭐ {res[3].upper()} ⭐</p>", unsafe_allow_html=True)
+        else:
+            # 4. Texto de espera si no hay sorteo
+            st.markdown("<p class='espera-texto'>Esperando resultados...</p>", unsafe_allow_html=True)
+
+# --- HISTORIAL DE AYER (SIMPLIFICADO) ---
+st.write("---")
+st.markdown("<p style='text-align: center; color: #666; font-size: 18px;'>RESUMEN DÍA ANTERIOR</p>", unsafe_allow_html=True)
+cols_a = st.columns(3)
+for i, h in enumerate(h_labels):
+    with cols_a[i]:
+        res_a = obtener_datos(fecha_ayer, h)
+        if res_a:
+            st.markdown(f"<p style='text-align:center; color:#888; font-size:15px;'>{h}: <b>{res_a[0]}-{res_a[1]}-{res_a[2]}</b> ({res_a[3]})</p>", unsafe_allow_html=True)
+
+# --- LÓGICA DE SORTEO AUTOMÁTICO (REFORZADA) ---
+for idx, h_meta_str in enumerate(horarios_metas):
+    t_m = datetime.strptime(h_meta_str, "%H:%M:%S").replace(year=ahora.year, month=ahora.month, day=ahora.day)
+    if ahora > (t_m + timedelta(seconds=5)) and not obtener_datos(fecha_hoy, h_labels[idx]):
+        a, b, c = ["".join([str(random.randint(0, 9)) for _ in range(3)]) for _ in range(3)]
+        z = random.choice(["Aries", "Tauro", "Géminis", "Cáncer", "Leo", "Virgo", "Libra", "Escorpio", "Sagitario", "Capricornio", "Acuario", "Piscis"])
+        with conectar_db() as db:
+            db.execute("INSERT INTO resultados (fecha, hora, a, b, c, signo) VALUES (?,?,?,?,?,?)", (fecha_hoy, h_labels[idx], a, b, c, z))
+        st.rerun()
+rt time
 from datetime import datetime, timedelta
 from streamlit_autorefresh import st_autorefresh
 
