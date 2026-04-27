@@ -13,9 +13,9 @@ st.markdown("""
     <style>
     .stApp { background-color: #1a3c1a; color: white; text-align: center; }
     [data-testid="stImage"] { background-color: transparent !important; display: flex; justify-content: center; }
-    .titulo-grande { font-size: 80px !important; color: #ccff00; font-weight: bold; text-shadow: 3px 3px 15px #000; margin-top: -20px; }
+    .titulo-grande { font-size: 70px !important; color: #ccff00; font-weight: bold; text-shadow: 3px 3px 15px #000; margin-top: -20px; }
     .subtitulo-grande { font-size: 25px; color: #ffff00; letter-spacing: 5px; margin-bottom: 20px; }
-    .timer-grande { font-size: 85px !important; color: #ffffff; font-family: monospace; font-weight: bold; text-shadow: 0 0 20px #ccff00; }
+    .timer-grande { font-size: 80px !important; color: #ffffff; font-family: monospace; font-weight: bold; text-shadow: 0 0 20px #ccff00; }
     .fecha-banner { font-size: 26px; color: #ccff00; font-weight: bold; border-top: 3px solid #ccff00; border-bottom: 3px solid #ccff00; padding: 10px; margin: 30px 0; background: #0b1a0b; }
     .hora-txt { font-size: 32px; font-weight: bold; margin-bottom: 10px; }
     .res-linea { font-size: 28px; color: #ffffff; margin: 5px 0; font-family: 'Consolas', monospace; font-weight: bold; }
@@ -31,10 +31,12 @@ def conectar_db():
     return conn
 
 def obtener_datos_dia(fecha, hora_etiqueta):
-    with conectar_db() as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT a, b, c, signo FROM resultados WHERE fecha=? AND hora=?", (fecha, hora_etiqueta))
-        return cursor.fetchone()
+    conn = conectar_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT a, b, c, signo FROM resultados WHERE fecha=? AND hora=?", (fecha, hora_etiqueta))
+    res = cursor.fetchone()
+    conn.close()
+    return res
 
 # --- LÓGICA DE TIEMPO (VENEZUELA UTC-4) ---
 ahora = datetime.now() - timedelta(hours=4)
@@ -42,14 +44,14 @@ fecha_hoy = ahora.strftime("%Y-%m-%d")
 h_labels = ["01:05 PM", "05:05 PM", "09:05 PM"]
 horarios_metas = ["13:05:00", "17:05:00", "21:05:00"]
 
-# Cálculo de contador
+# Contador
 futuros = [datetime.strptime(h, "%H:%M:%S").replace(year=ahora.year, month=ahora.month, day=ahora.day) for h in horarios_metas]
 futuros = [f if f > ahora else f + timedelta(days=1) for f in futuros]
 restante = int((min(futuros) - ahora).total_seconds())
 
 # --- CABECERA ---
 try:
-    st.image("logo.png", width=450)
+    st.image("logo.png", width=400)
 except: pass
 
 st.markdown("<div class='titulo-grande'>TRIPLE SAPO</div>", unsafe_allow_html=True)
@@ -58,10 +60,9 @@ st.markdown("<div class='subtitulo-grande'>LOTERÍA DE MARA</div>", unsafe_allow
 h_f, rem = divmod(restante, 3600)
 m_f, s_f = divmod(rem, 60)
 st.markdown(f"<div class='timer-grande'>{h_f:02d}:{m_f:02d}:{s_f:02d}</div>", unsafe_allow_html=True)
-st.markdown("<p style='color: #888; font-size: 18px; margin-top:-10px;'>PRÓXIMO SORTEO EN</p>", unsafe_allow_html=True)
 
-# --- BLOQUE DE HOY (SE LIMPIA SOLO A LAS 12:00 AM) ---
-st.markdown(f"<div class='fecha-banner'>📅 SORTEOS DEL DÍA: {ahora.strftime('%d/%m/%Y')}</div>", unsafe_allow_html=True)
+# --- BLOQUE DE HOY (Sorteos del día actual) ---
+st.markdown(f"<div class='fecha-banner'>📅 HOY: {ahora.strftime('%d/%m/%Y')}</div>", unsafe_allow_html=True)
 
 cols_hoy = st.columns(3)
 for i, h in enumerate(h_labels):
@@ -73,31 +74,39 @@ for i, h in enumerate(h_labels):
         else:
             st.markdown("<p style='color:#444; font-style:italic; font-size:18px;'>Esperando...</p>", unsafe_allow_html=True)
 
-# --- HISTORIAL DINÁMICO (ÚLTIMOS 5 DÍAS) ---
-st.markdown("<div class='seccion-historial'>📜 RESULTADOS ANTERIORES</div>", unsafe_allow_html=True)
+# --- HISTORIAL AUTOMÁTICO (Días pasados) ---
+st.markdown("<div class='seccion-historial'>📜 ÚLTIMOS 5 DÍAS ANTERIORES</div>", unsafe_allow_html=True)
 
-for d in range(1, 6): # Desde ayer (1) hasta hace 5 días
-    fecha_atras = (ahora - timedelta(days=d)).strftime("%Y-%m-%d")
+for d in range(1, 6): # Revisa hacia atrás: ayer (1), anteayer (2), etc.
+    fecha_past = (ahora - timedelta(days=d)).strftime("%Y-%m-%d")
     fecha_visual = (ahora - timedelta(days=d)).strftime("%d/%m/%Y")
     
-    # Solo mostramos el día si tiene al menos un sorteo realizado
-    check_sorteo = obtener_datos_dia(fecha_atras, h_labels[0]) or obtener_datos_dia(fecha_atras, h_labels[1]) or obtener_datos_dia(fecha_atras, h_labels[2])
+    # Solo mostramos el banner del día si existen resultados guardados para ese día
+    conn_check = conectar_db()
+    cursor_check = conn_check.cursor()
+    cursor_check.execute("SELECT id FROM resultados WHERE fecha=? LIMIT 1", (fecha_past,))
+    existe_dato = cursor_check.fetchone()
+    conn_check.close()
     
-    if check_sorteo:
+    if existe_dato:
         st.markdown(f"<div class='fecha-banner' style='font-size:20px; margin: 15px 0;'>DÍA: {fecha_visual}</div>", unsafe_allow_html=True)
         cols_p = st.columns(3)
         for i, h in enumerate(h_labels):
             with cols_p[i]:
-                rp = obtener_datos_dia(fecha_atras, h)
+                rp = obtener_datos_dia(fecha_past, h)
                 if rp:
                     st.markdown(f"<div style='font-size:16px; font-weight:bold; color:#aaa;'>{h}</div>", unsafe_allow_html=True)
                     st.markdown(f"<div style='font-size:15px;'>A:{rp[0]} B:{rp[1]} C:{rp[2]}<br><b style='color:#ccff00'>{rp[3].upper()}</b></div>", unsafe_allow_html=True)
+    else:
+        # Esto sirve para que sepas que el historial está listo para cuando pasen los días
+        pass
 
-# --- SORTEO AUTOMÁTICO ---
+# --- LÓGICA DE SORTEO AUTOMÁTICO ---
 for idx, h_m in enumerate(horarios_metas):
     t_s = datetime.strptime(h_m, "%H:%M:%S").replace(year=ahora.year, month=ahora.month, day=ahora.day)
+    # Si ya pasó el horario y el cuadro de hoy está vacío, sortea
     if ahora > (t_s + timedelta(seconds=5)) and not obtener_datos_dia(fecha_hoy, h_labels[idx]):
-        a, b, c = [f"{random.randint(0, 999):03d}" for _ in range(3)]
+        a, b, c = [f"{random.randint(0,999):03d}" for _ in range(3)]
         z = random.choice(["Aries", "Tauro", "Géminis", "Cáncer", "Leo", "Virgo", "Libra", "Escorpio", "Sagitario", "Capricornio", "Acuario", "Piscis"])
         with conectar_db() as db:
             db.execute("INSERT INTO resultados (fecha, hora, a, b, c, signo) VALUES (?,?,?,?,?,?)", (fecha_hoy, h_labels[idx], a, b, c, z))
