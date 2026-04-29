@@ -1,113 +1,78 @@
-import streamlit as st
-import sqlite3
 import random
-from datetime import datetime, timedelta
-from streamlit_autorefresh import st_autorefresh
+import time
+import sqlite3
+from datetime import datetime
+import schedule
 
-# --- CONFIGURACIÓN DE PÁGINA ---
-st.set_page_config(page_title="Triple Sapo - Monitor Oficial", layout="wide")
-st_autorefresh(interval=1000, key="reloj_global")
+# --- CONFIGURACIÓN DE LA BASE DE DATOS ---
+def inicializar_db():
+    try:
+        with sqlite3.connect("sorteos_lotería.db") as conexion:
+            cursor = conexion.cursor()
+            # Añadimos columnas para Terminales para coincidir con la imagen
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS resultados (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    fecha TEXT,
+                    hora_programada TEXT,
+                    triple_a TEXT,
+                    terminal_a TEXT,
+                    triple_b TEXT,
+                    terminal_b TEXT,
+                    zodiacal TEXT
+                )
+            ''')
+            conexion.commit()
+    except sqlite3.Error as e:
+        print(f"Error DB: {e}")
 
-# --- ESTILOS CSS ---
-st.markdown("""
-    <style>
-    .stApp { background-color: #1a3c1a; color: white; text-align: center; }
-    [data-testid="stImage"] { background-color: transparent !important; display: flex; justify-content: center; }
-    .titulo-grande { font-size: 70px !important; color: #ccff00; font-weight: bold; text-shadow: 3px 3px 15px #000; margin-top: -20px; }
-    .subtitulo-grande { font-size: 25px; color: #ffff00; letter-spacing: 5px; margin-bottom: 20px; }
-    .timer-grande { font-size: 80px !important; color: #ffffff; font-family: monospace; font-weight: bold; text-shadow: 0 0 20px #ccff00; }
-    .fecha-banner { font-size: 26px; color: #ccff00; font-weight: bold; border-top: 3px solid #ccff00; border-bottom: 3px solid #ccff00; padding: 10px; margin: 30px 0; background: #0b1a0b; }
-    .hora-txt { font-size: 32px; font-weight: bold; margin-bottom: 10px; }
-    .res-linea { font-size: 28px; color: #ffffff; margin: 5px 0; font-family: 'Consolas', monospace; font-weight: bold; }
-    .res-signo { font-size: 35px; color: #ccff00; font-weight: bold; margin-top: 10px; }
-    .seccion-historial { color: #ccff00; font-size: 30px; font-weight: bold; margin-top: 60px; text-decoration: underline; }
-    </style>
-    """, unsafe_allow_html=True)
-
-# --- BASE DE DATOS ---
-def conectar_db():
-    conn = sqlite3.connect("sorteos_web.db", check_same_thread=False)
-    conn.execute('CREATE TABLE IF NOT EXISTS resultados (id INTEGER PRIMARY KEY AUTOINCREMENT, fecha TEXT, hora TEXT, a TEXT, b TEXT, c TEXT, signo TEXT)')
-    return conn
-
-def obtener_datos_dia(fecha, hora_etiqueta):
-    conn = conectar_db()
-    cursor = conn.cursor()
-    cursor.execute("SELECT a, b, c, signo FROM resultados WHERE fecha=? AND hora=?", (fecha, hora_etiqueta))
-    res = cursor.fetchone()
-    conn.close()
-    return res
-
-# --- LÓGICA DE TIEMPO (VENEZUELA UTC-4) ---
-ahora = datetime.now() - timedelta(hours=4)
-fecha_hoy = ahora.strftime("%Y-%m-%d")
-h_labels = ["01:05 PM", "05:05 PM", "09:25 PM"]
-horarios_metas = ["13:05:00", "17:05:00", "21:25:00"]
-
-# Contador
-futuros = [datetime.strptime(h, "%H:%M:%S").replace(year=ahora.year, month=ahora.month, day=ahora.day) for h in horarios_metas]
-futuros = [f if f > ahora else f + timedelta(days=1) for f in futuros]
-restante = int((min(futuros) - ahora).total_seconds())
-
-# --- CABECERA ---
-try:
-    st.image("logo.png", width=400)
-except: pass
-
-st.markdown("<div class='titulo-grande'>TRIPLE SAPO</div>", unsafe_allow_html=True)
-st.markdown("<div class='subtitulo-grande'>LOTERÍA DE MARA</div>", unsafe_allow_html=True)
-
-h_f, rem = divmod(restante, 3600)
-m_f, s_f = divmod(rem, 60)
-st.markdown(f"<div class='timer-grande'>{h_f:02d}:{m_f:02d}:{s_f:02d}</div>", unsafe_allow_html=True)
-
-# --- BLOQUE DE HOY (Sorteos del día actual) ---
-st.markdown(f"<div class='fecha-banner'>📅 HOY: {ahora.strftime('%d/%m/%Y')}</div>", unsafe_allow_html=True)
-
-cols_hoy = st.columns(3)
-for i, h in enumerate(h_labels):
-    with cols_hoy[i]:
-        res = obtener_datos_dia(fecha_hoy, h)
-        st.markdown(f"<div class='hora-txt' style='color:{['#ffcc00','#00ffcc','#ff3366'][i]}'>{h}</div>", unsafe_allow_html=True)
-        if res:
-            st.markdown(f"<div class='res-linea'>A: {res[0]}</div><div class='res-linea'>B: {res[1]}</div><div class='res-linea'>C: {res[2]}</div><div class='res-signo'>{res[3].upper()}</div>", unsafe_allow_html=True)
-        else:
-            st.markdown("<p style='color:#444; font-style:italic; font-size:18px;'>Esperando...</p>", unsafe_allow_html=True)
-
-# --- HISTORIAL AUTOMÁTICO (Días pasados) ---
-st.markdown("<div class='seccion-historial'>📜 ÚLTIMOS 5 DÍAS ANTERIORES</div>", unsafe_allow_html=True)
-
-for d in range(1, 6): # Revisa hacia atrás: ayer (1), anteayer (2), etc.
-    fecha_past = (ahora - timedelta(days=d)).strftime("%Y-%m-%d")
-    fecha_visual = (ahora - timedelta(days=d)).strftime("%d/%m/%Y")
+# --- LÓGICA DEL SORTEO ---
+def ejecutar_sorteos_automaticos(hora_etiqueta):
+    print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Generando sorteo...")
     
-    # Solo mostramos el banner del día si existen resultados guardados para ese día
-    conn_check = conectar_db()
-    cursor_check = conn_check.cursor()
-    cursor_check.execute("SELECT id FROM resultados WHERE fecha=? LIMIT 1", (fecha_past,))
-    existe_dato = cursor_check.fetchone()
-    conn_check.close()
-    
-    if existe_dato:
-        st.markdown(f"<div class='fecha-banner' style='font-size:20px; margin: 15px 0;'>DÍA: {fecha_visual}</div>", unsafe_allow_html=True)
-        cols_p = st.columns(3)
-        for i, h in enumerate(h_labels):
-            with cols_p[i]:
-                rp = obtener_datos_dia(fecha_past, h)
-                if rp:
-                    st.markdown(f"<div style='font-size:16px; font-weight:bold; color:#aaa;'>{h}</div>", unsafe_allow_html=True)
-                    st.markdown(f"<div style='font-size:15px;'>A:{rp[0]} B:{rp[1]} C:{rp[2]}<br><b style='color:#ccff00'>{rp[3].upper()}</b></div>", unsafe_allow_html=True)
-    else:
-        # Esto sirve para que sepas que el historial está listo para cuando pasen los días
-        pass
+    # Función para generar Triple y extraer Terminal
+    def generar_triple_y_terminal():
+        num = random.randint(0, 999)
+        triple = f"{num:03d}"
+        terminal = triple[1:] # Toma los últimos 2 dígitos
+        return triple, terminal
 
-# --- LÓGICA DE SORTEO AUTOMÁTICO ---
-for idx, h_m in enumerate(horarios_metas):
-    t_s = datetime.strptime(h_m, "%H:%M:%S").replace(year=ahora.year, month=ahora.month, day=ahora.day)
-    # Si ya pasó el horario y el cuadro de hoy está vacío, sortea
-    if ahora > (t_s + timedelta(seconds=5)) and not obtener_datos_dia(fecha_hoy, h_labels[idx]):
-        a, b, c = [f"{random.randint(0,999):03d}" for _ in range(3)]
-        z = random.choice(["Aries", "Tauro", "Géminis", "Cáncer", "Leo", "Virgo", "Libra", "Escorpio", "Sagitario", "Capricornio", "Acuario", "Piscis"])
-        with conectar_db() as db:
-            db.execute("INSERT INTO resultados (fecha, hora, a, b, c, signo) VALUES (?,?,?,?,?,?)", (fecha_hoy, h_labels[idx], a, b, c, z))
-        st.rerun()
+    # Generar resultados para A y B
+    t_a, term_a = generar_triple_y_terminal()
+    t_b, term_b = generar_triple_y_terminal()
+
+    # Generar Zodiacal (Número de 3 dígitos + Signo)
+    signos = ["ARIES", "TAURO", "GÉMINIS", "CÁNCER", "LEO", "VIRGO", 
+              "LIBRA", "ESCORPIO", "SAGITARIO", "CAPRICORNIO", "ACUARIO", "PISCIS"]
+    num_zodiacal = f"{random.randint(0, 999):03d}"
+    res_zodiacal = f"{num_zodiacal} - {random.choice(signos)}"
+
+    fecha_hoy = datetime.now().strftime("%d/%m/%Y") # Formato DD/MM/YYYY como la imagen
+    
+    try:
+        with sqlite3.connect("sorteos_lotería.db") as conexion:
+            cursor = conexion.cursor()
+            cursor.execute('''
+                INSERT INTO resultados (fecha, hora_programada, triple_a, terminal_a, triple_b, terminal_b, zodiacal)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (fecha_hoy, hora_etiqueta, t_a, term_a, t_b, term_b, res_zodiacal))
+            conexion.commit()
+        
+        print(f"✅ SORTEO REALIZADO ({hora_etiqueta})")
+        print(f"A: {t_a} ({term_a}) | B: {t_b} ({term_b}) | Zod: {res_zodiacal}")
+    except sqlite3.Error as e:
+        print(f"❌ Error al guardar: {e}")
+
+# --- PROGRAMACIÓN ---
+inicializar_db()
+
+# Horarios ajustados a los de la imagen (ejemplos)
+schedule.every().day.at("11:45").do(ejecutar_sorteos_automaticos, hora_etiqueta="11:45 am")
+schedule.every().day.at("15:45").do(ejecutar_sorteos_automaticos, hora_etiqueta="03:45 pm")
+schedule.every().day.at("21:45").do(ejecutar_sorteos_automaticos, hora_etiqueta="09:45 pm")
+
+print("Servidor de Lotería iniciado. Esperando la hora del sorteo...")
+
+while True:
+    schedule.run_pending()
+    time.sleep(1)
