@@ -17,8 +17,8 @@ tz_vzla = pytz.timezone('America/Caracas')
 ahora = datetime.now(tz_vzla)
 fecha_hoy = ahora.strftime("%Y-%m-%d")
 
-h_labels = ["01:05 PM", "05:05 PM", "09:05 PM"]
-horarios_metas = ["13:05:00", "17:05:00", "21:05:00"]
+h_labels = ["01:05 PM", "05:05 PM", "10:49 PM"]
+horarios_metas = ["13:05:00", "17:05:00", "22:49:00"]
 
 # --- ESTILOS CSS ---
 st.markdown("""
