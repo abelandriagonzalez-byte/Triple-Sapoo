@@ -9,10 +9,10 @@ from streamlit_autorefresh import st_autorefresh
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title="Triple Sapo - Monitor Oficial", layout="wide")
 
-# Refresco cada 1 segundo para el reloj global
+# Refresco cada 1 segundo
 st_autorefresh(interval=1000, key="reloj_global")
 
-# --- LÓGICA DE TIEMPO (VENEZUELA UTC-4) ---
+# --- LÓGICA DE TIEMPO (VENEZUELA) ---
 tz_vzla = pytz.timezone('America/Caracas')
 ahora = datetime.now(tz_vzla)
 fecha_hoy = ahora.strftime("%Y-%m-%d")
@@ -27,12 +27,17 @@ st.markdown("""
     .titulo-grande { font-size: 50px !important; color: #ccff00; font-weight: bold; text-shadow: 3px 3px 10px #000; }
     .timer-digital { font-size: 70px !important; color: #ffffff; font-family: monospace; font-weight: bold; text-shadow: 0 0 20px #ccff00; }
     .bola-tombola { 
-        display: inline-block; width: 85px; height: 85px; line-height: 85px; 
+        display: inline-block; width: 100px; height: 100px; line-height: 100px; 
         background: radial-gradient(circle at 30% 30%, #ffffff, #ccff00);
-        color: #000; font-size: 35px; font-weight: bold; border-radius: 50%;
-        margin: 10px; border: 4px solid #0b1a0b; box-shadow: 0 0 20px #ccff00;
+        color: #000; font-size: 38px; font-weight: bold; border-radius: 50%;
+        margin: 15px; border: 4px solid #0b1a0b; box-shadow: 0 0 25px #ccff00;
     }
-    .fecha-banner { font-size: 24px; color: #ccff00; font-weight: bold; border-top: 3px solid #ccff00; border-bottom: 3px solid #ccff00; padding: 10px; margin: 20px 0; background: #0b1a0b; }
+    .bola-signo { 
+        display: inline-block; padding: 10px 30px; background: #ffff00; 
+        color: #000; font-size: 30px; font-weight: bold; border-radius: 20px;
+        margin-top: 20px; border: 3px solid #000; box-shadow: 0 0 15px #ffff00;
+    }
+    .letra-label { font-size: 25px; color: #ccff00; font-weight: bold; margin-bottom: -10px; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -56,7 +61,6 @@ for h in horarios_metas:
     h_dt = tz_vzla.localize(datetime.combine(ahora.date(), datetime.strptime(h, "%H:%M:%S").time()))
     if h_dt <= ahora: h_dt += timedelta(days=1)
     futuros.append(h_dt)
-
 restante = int((min(futuros) - ahora).total_seconds())
 h_f, rem = divmod(restante, 3600)
 m_f, s_f = divmod(rem, 60)
@@ -67,8 +71,6 @@ tab1, tab2 = st.tabs(["📺 MONITOR PRINCIPAL", "🎰 TÓMBOLA EN VIVO"])
 with tab1:
     st.markdown("<div class='titulo-grande'>TRIPLE SAPO</div>", unsafe_allow_html=True)
     st.markdown(f"<div class='timer-digital'>{h_f:02d}:{m_f:02d}:{s_f:02d}</div>", unsafe_allow_html=True)
-    st.markdown(f"<div class='fecha-banner'>📅 HOY: {ahora.strftime('%d/%m/%Y')}</div>", unsafe_allow_html=True)
-    
     cols = st.columns(3)
     for i, h in enumerate(h_labels):
         with cols[i]:
@@ -76,60 +78,68 @@ with tab1:
             st.markdown(f"<h3 style='color:#ccff00'>{h}</h3>", unsafe_allow_html=True)
             if res:
                 st.markdown(f"**A:** {res[0]}<br>**B:** {res[1]}<br>**C:** {res[2]}<br><b style='color:#ffff00'>{res[3].upper()}</b>", unsafe_allow_html=True)
-            else:
-                st.info("Esperando...")
+            else: st.info("Esperando...")
 
 with tab2:
-    st.markdown("## 🎰 TÓMBOLA EN TIEMPO REAL")
+    st.markdown("## 🎰 SORTEO INDIVIDUAL POR LETRAS")
+    btn_prueba = st.button("🚀 INICIAR SIMULACIÓN LENTA")
     
-    # --- BOTÓN DE PRUEBA ---
-    btn_prueba = st.button("🚀 PROBAR ANIMACIÓN DE TÓMBOLA")
-    
-    # Inicializar estado para evitar bucles infinitos
     if 'sorteo_ejecutado' not in st.session_state:
         st.session_state.sorteo_ejecutado = None
 
     sorteo_activo = False
-    
-    # Lógica de Sorteo Real o Prueba
     for idx, h_m in enumerate(horarios_metas):
         t_sorteo = tz_vzla.localize(datetime.combine(ahora.date(), datetime.strptime(h_m, "%H:%M:%S").time()))
-        
-        # Condición para sorteo real (Hora exacta) o botón de prueba
-        es_hora = t_sorteo <= ahora <= (t_sorteo + timedelta(seconds=20)) and not obtener_datos_dia(fecha_hoy, h_labels[idx])
+        es_hora = t_sorteo <= ahora <= (t_sorteo + timedelta(seconds=30)) and not obtener_datos_dia(fecha_hoy, h_labels[idx])
         
         if (es_hora and st.session_state.sorteo_ejecutado != h_labels[idx]) or btn_prueba:
             sorteo_activo = True
+            
+            # Resultados finales que se revelarán
+            final_a, final_b, final_c = [f"{random.randint(0,999):03d}" for _ in range(3)]
+            final_z = random.choice(["Aries", "Tauro", "Géminis", "Cáncer", "Leo", "Virgo", "Libra", "Escorpio", "Sagitario", "Capricornio", "Acuario", "Piscis"])
+            
+            display_a, display_b, display_c, display_z = "???", "???", "???", "???"
             placeholder = st.empty()
+
+            # SECUENCIA LENTA DE REVELACIÓN
+            pasos = [("A", 25), ("B", 25), ("C", 25), ("Z", 35)]
             
-            # ANIMACIÓN
-            for _ in range(30):
-                t_a, t_b, t_c = [f"{random.randint(0,999):03d}" for _ in range(3)]
-                placeholder.markdown(f"""
-                    <div style='display: flex; justify-content: center;'>
-                        <div class='bola-tombola'>{t_a}</div>
-                        <div class='bola-tombola'>{t_b}</div>
-                        <div class='bola-tombola'>{t_c}</div>
-                    </div>
-                """, unsafe_allow_html=True)
-                time.sleep(0.1)
-            
-            # Si no es prueba, guardamos en la base de datos
+            for fase, vueltas in pasos:
+                for _ in range(vueltas):
+                    # Mientras gira la fase actual, las demás muestran valores aleatorios o fijos
+                    if fase == "A": display_a = f"{random.randint(0,999):03d}"
+                    elif fase == "B": display_b = f"{random.randint(0,999):03d}"
+                    elif fase == "C": display_c = f"{random.randint(0,999):03d}"
+                    elif fase == "Z": display_z = random.choice(["???", "Leo", "Aries", "Piscis", "Tauro"])
+
+                    placeholder.markdown(f"""
+                        <div style='display: flex; justify-content: center; gap: 20px;'>
+                            <div><div class='letra-label'>TRIPLE A</div><div class='bola-tombola'>{display_a}</div></div>
+                            <div><div class='letra-label'>TRIPLE B</div><div class='bola-tombola'>{display_b}</div></div>
+                            <div><div class='letra-label'>TRIPLE C</div><div class='letra-label'>TRIPLE C</div><div class='bola-tombola'>{display_c}</div></div>
+                        </div>
+                        <div class='bola-signo'>{display_z.upper()}</div>
+                    """, unsafe_allow_html=True)
+                    time.sleep(0.08) # Velocidad del giro
+                
+                # Al terminar las vueltas de una fase, fijamos su valor real
+                if fase == "A": display_a = final_a
+                elif fase == "B": display_b = final_b
+                elif fase == "C": display_c = final_c
+                elif fase == "Z": display_z = final_z
+
+            # Guardar si es real
             if not btn_prueba:
-                res_a, res_b, res_c = [f"{random.randint(0,999):03d}" for _ in range(3)]
-                signo = random.choice(["Aries", "Tauro", "Géminis", "Cáncer", "Leo", "Virgo", "Libra", "Escorpio", "Sagitario", "Capricornio", "Acuario", "Piscis"])
                 with conectar_db() as db:
-                    db.execute("INSERT INTO resultados (fecha, hora, a, b, c, signo) VALUES (?,?,?,?,?,?)", (fecha_hoy, h_labels[idx], res_a, res_b, res_c, signo))
+                    db.execute("INSERT INTO resultados (fecha, hora, a, b, c, signo) VALUES (?,?,?,?,?,?)", (fecha_hoy, h_labels[idx], final_a, final_b, final_c, final_z))
                 st.session_state.sorteo_ejecutado = h_labels[idx]
-                st.success(f"¡SORTEO DE LAS {h_labels[idx]} REGISTRADO!")
-            else:
-                st.success("¡PRUEBA FINALIZADA!")
             
             st.balloons()
-            time.sleep(3)
+            time.sleep(4)
             st.rerun()
             break
 
     if not sorteo_activo:
-        st.write("La tómbola se activará automáticamente a la hora del sorteo.")
-        st.markdown("<div style='opacity: 0.2;'><div class='bola-tombola'>?</div><div class='bola-tombola'>?</div><div class='bola-tombola'>?</div></div>", unsafe_allow_html=True)
+        st.write("Esperando hora de sorteo para iniciar secuencia...")
+        st.markdown("<div style='opacity: 0.2; filter: grayscale(1);'><div class='bola-tombola'>000</div><div class='bola-tombola'>000</div><div class='bola-tombola'>000</div><br><div class='bola-signo'>SIGNO</div></div>", unsafe_allow_html=True)
