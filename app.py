@@ -43,8 +43,8 @@ def obtener_datos_dia(fecha, hora_etiqueta):
 # --- LÓGICA DE TIEMPO (VENEZUELA UTC-4) ---
 ahora = datetime.now() - timedelta(hours=4)
 fecha_hoy = ahora.strftime("%Y-%m-%d")
-h_labels = ["01:05 PM", "05:05 PM", "09:05 PM"]
-horarios_metas = ["13:05:00", "17:05:00", "21:05:00"]
+h_labels = ["01:05 PM", "05:05 PM", "10:23 PM"]
+horarios_metas = ["13:05:00", "17:05:00", "22:23:00"]
 
 # Contador regresivo
 futuros = [datetime.strptime(h, "%H:%M:%S").replace(year=ahora.year, month=ahora.month, day=ahora.day) for h in horarios_metas]
