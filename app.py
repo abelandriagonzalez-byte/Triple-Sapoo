@@ -1,109 +1,125 @@
+import streamlit as st
 import random
 import time
 import sqlite3
+import pandas as pd
+import threading
 from datetime import datetime, timedelta
 import schedule
-import streamlit as st
-import threading
-import pandas as pd
 
-# --- CONFIGURACIÓN DE LA PÁGINA ---
+# --- 1. CONFIGURACIÓN DE PÁGINA Y TÍTULO ---
 st.set_page_config(page_title="TRIPLE SAPOO", layout="wide")
+st.title("🐸 TRIPLE SAPOO")
 
-# --- LÓGICA DE BASE DE DATOS ---
+# --- 2. LÓGICA DE LA BASE DE DATOS ---
 def inicializar_db():
-    conexion = sqlite3.connect("sorteos_lotería.db", check_same_thread=False)
-    cursor = conexion.cursor()
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS resultados (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            fecha TEXT,
-            hora_programada TEXT,
-            triple_a TEXT,
-            terminal_a TEXT,
-            triple_b TEXT,
-            terminal_b TEXT,
-            zodiacal TEXT
-        )
-    ''')
-    conexion.commit()
-    conexion.close()
+    with sqlite3.connect("sorteos_lotería.db", check_same_thread=False) as conexion:
+        cursor = conexion.cursor()
+        # Estructura original: fecha, hora, sorteos A, B, C y Zodiacal
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS resultados (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                fecha TEXT,
+                hora_programada TEXT,
+                sorteo_a TEXT,
+                sorteo_b TEXT,
+                sorteo_c TEXT,
+                zodiacal TEXT
+            )
+        ''')
+        conexion.commit()
 
 def ejecutar_sorteos_automaticos(hora_etiqueta):
     def generar_triple():
-        return f"{random.randint(0, 999):03d}"
+        return "".join([str(random.randint(0, 9)) for _ in range(3)])
 
     signos = ["Aries", "Tauro", "Géminis", "Cáncer", "Leo", "Virgo", 
               "Libra", "Escorpio", "Sagitario", "Capricornio", "Acuario", "Piscis"]
 
     res_a = generar_triple()
     res_b = generar_triple()
-    res_z = f"{random.randint(0, 999):03d} - {random.choice(signos)}"
-    
-    # El terminal son los últimos 2 dígitos del triple
-    term_a = res_a[1:]
-    term_b = res_b[1:]
+    res_c = generar_triple()
+    res_z = random.choice(signos)
 
-    fecha_hoy = datetime.now().strftime("%d/%m/%Y")
+    fecha_hoy = datetime.now().strftime("%Y-%m-%d")
     
-    conexion = sqlite3.connect("sorteos_lotería.db", check_same_thread=False)
-    cursor = conexion.cursor()
-    cursor.execute('''
-        INSERT INTO resultados (fecha, hora_programada, triple_a, terminal_a, triple_b, terminal_b, zodiacal)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    ''', (fecha_hoy, hora_etiqueta, res_a, term_a, res_b, term_b, res_z))
-    conexion.commit()
-    conexion.close()
+    with sqlite3.connect("sorteos_lotería.db", check_same_thread=False) as conexion:
+        cursor = conexion.cursor()
+        cursor.execute('''
+            INSERT INTO resultados (fecha, hora_programada, sorteo_a, sorteo_b, sorteo_c, zodiacal)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (fecha_hoy, hora_etiqueta, res_a, res_b, res_c, res_z))
+        conexion.commit()
 
-# --- HILO PARA EL RELOJ ---
-def iniciar_reloj():
+# --- 3. PROCESO EN SEGUNDO PLANO (RELOJ) ---
+def run_schedule():
+    # Programación de horarios originales
     schedule.every().day.at("13:00").do(ejecutar_sorteos_automaticos, hora_etiqueta="01:00 PM")
     schedule.every().day.at("16:00").do(ejecutar_sorteos_automaticos, hora_etiqueta="04:00 PM")
     schedule.every().day.at("21:00").do(ejecutar_sorteos_automaticos, hora_etiqueta="09:00 PM")
+    
     while True:
         schedule.run_pending()
         time.sleep(1)
 
-if "reloj_iniciado" not in st.session_state:
+# Iniciar el hilo del sorteador una sola vez
+if "hilo_iniciado" not in st.session_state:
     inicializar_db()
-    threading.Thread(target=iniciar_reloj, daemon=True).start()
-    st.session_state.reloj_iniciado = True
+    t = threading.Thread(target=run_schedule, daemon=True)
+    t.start()
+    st.session_state.hilo_iniciado = True
 
-# --- INTERFAZ STREAMLIT ---
-st.title("🐸 TRIPLE SAPOO")
-
-# Contador Regresivo
-def proximo_sorteo():
+# --- 4. CONTADOR REGRESIVO ---
+def obtener_tiempo_restante():
     ahora = datetime.now()
-    horas = ["13:00", "16:00", "21:00"]
-    futuros = [datetime.strptime(h, "%H:%M").replace(year=ahora.year, month=ahora.month, day=ahora.day) for h in horas]
-    pendientes = [h for h in futuros if h > ahora]
+    horarios = ["13:00", "16:00", "21:00"]
+    proximos = []
+    for h in horarios:
+        h_obj = datetime.strptime(h, "%H:%M").replace(year=ahora.year, month=ahora.month, day=ahora.day)
+        if h_obj > ahora:
+            proximos.append(h_obj)
     
-    if not pendientes:
-        prox = futuros[0] + timedelta(days=1)
+    if not proximos:
+        # Si pasaron todos los sorteos, el próximo es mañana a la 1:00 PM
+        prox = datetime.strptime("13:00", "%H:%M").replace(year=ahora.year, month=ahora.month, day=ahora.day) + timedelta(days=1)
     else:
-        prox = min(pendientes)
+        prox = min(proximos)
     
-    dif = prox - ahora
-    return str(dif).split(".")[0] # Formato HH:MM:SS
+    faltante = prox - ahora
+    segundos = int(faltante.total_seconds())
+    hh, mm = divmod(segundos // 60, 60)
+    ss = segundos % 60
+    return f"{hh:02d}:{mm:02d}:{ss:02d}", prox.strftime("%I:%00 %p")
 
-st.metric("Tiempo para el próximo sorteo", proximo_sorteo())
+# --- 5. INTERFAZ VISUAL ---
+tiempo_str, prox_hora_str = obtener_tiempo_restante()
 
-if st.button("🎲 Realizar Sorteo Manual"):
-    ejecutar_sorteos_automaticos("MANUAL")
-    st.rerun()
+st.subheader(f"Próximo Sorteo: {prox_hora_str}")
+st.metric("Cuenta Regresiva", tiempo_str)
 
-st.write("### Historial de Resultados")
+col1, col2 = st.columns(2)
+with col1:
+    if st.button("🎲 Sorteo Manual"):
+        ejecutar_sorteos_automaticos("MANUAL")
+        st.rerun()
+with col2:
+    if st.button("🔄 Actualizar"):
+        st.rerun()
 
-# Mostrar Resultados
+st.write("### 📋 Historial de Resultados")
+
 try:
-    conn = sqlite3.connect("sorteos_lotería.db")
-    df = pd.read_sql_query("SELECT fecha, hora_programada, triple_a, terminal_a, triple_b, terminal_b, zodiacal FROM resultados ORDER BY id DESC", conn)
-    st.table(df)
-    conn.close()
+    with sqlite3.connect("sorteos_lotería.db") as conn:
+        df = pd.read_sql_query("SELECT fecha, hora_programada, sorteo_a, sorteo_b, sorteo_c, zodiacal FROM resultados ORDER BY id DESC", conn)
+    
+    if not df.empty:
+        df.columns = ["Fecha", "Hora", "Sorteo A", "Sorteo B", "Sorteo C", "Signo"]
+        st.table(df)
+    else:
+        st.info("Esperando los sorteos programados...")
 except:
-    st.info("Esperando datos...")
+    st.error("Iniciando base de datos...")
 
-# Refresco para el contador
-time.sleep(1)
+# Auto-refresco cada 10 segundos para actualizar el contador
+time.sleep(10)
 st.rerun()
