@@ -1,162 +1,108 @@
-import random
-import time
+import streamlit as st
 import sqlite3
-import tkinter as tk
-from tkinter import PhotoImage
+import random
 from datetime import datetime, timedelta
-import threading
-import schedule
-import pygame
+from streamlit_autorefresh import st_autorefresh
 
-# --- AUDIO ---
-pygame.mixer.init()
+# --- CONFIGURACIÓN DE PÁGINA ---
+st.set_page_config(page_title="Triple Sapo - Monitor Oficial", layout="wide")
 
-def reproducir_sonido(archivo, loops=0):
-    try:
-        pygame.mixer.music.load(archivo)
-        pygame.mixer.music.play(loops)
-    except: pass
+# Refresco cada 1 segundo (Vital para el reloj y sorteos)
+st_autorefresh(interval=1000, key="reloj_global")
 
-def detener_sonido():
-    pygame.mixer.music.stop()
+# --- ESTILOS CSS ---
+st.markdown("""
+    <style>
+    .stApp { background-color: #1a3c1a; color: white; text-align: center; }
+    [data-testid="stImage"] { background-color: transparent !important; display: flex; justify-content: center; }
+    .titulo-grande { font-size: 50px !important; color: #ccff00; font-weight: bold; text-shadow: 3px 3px 10px #000; margin-top: -10px; }
+    .subtitulo-grande { font-size: 22px; color: #ffff00; letter-spacing: 3px; margin-bottom: 15px; }
+    .timer-digital { font-size: 60px !important; color: #ffffff; font-family: monospace; font-weight: bold; text-shadow: 0 0 15px #ccff00; }
+    .fecha-banner { font-size: 24px; color: #ccff00; font-weight: bold; border-top: 3px solid #ccff00; border-bottom: 3px solid #ccff00; padding: 10px; margin: 25px 0; background: #0b1a0b; }
+    .hora-txt { font-size: 28px; font-weight: bold; margin-bottom: 10px; }
+    .res-linea { font-size: 26px; color: #ffffff; margin: 4px 0; font-family: 'Consolas', monospace; font-weight: bold; }
+    .res-signo { font-size: 32px; color: #ccff00; font-weight: bold; margin-top: 8px; }
+    .seccion-historial { color: #ccff00; font-size: 28px; font-weight: bold; margin-top: 50px; text-decoration: underline; }
+    </style>
+    """, unsafe_allow_html=True)
 
 # --- BASE DE DATOS ---
-def inicializar_db():
-    with sqlite3.connect("sorteos_lotería.db") as conn:
-        conn.execute('''CREATE TABLE IF NOT EXISTS resultados 
-                        (id INTEGER PRIMARY KEY AUTOINCREMENT, fecha TEXT, hora_programada TEXT, 
-                        sorteo_a TEXT, sorteo_b TEXT, sorteo_c TEXT, zodiacal TEXT)''')
+def conectar_db():
+    conn = sqlite3.connect("sorteos_web.db", check_same_thread=False)
+    conn.execute('CREATE TABLE IF NOT EXISTS resultados (id INTEGER PRIMARY KEY AUTOINCREMENT, fecha TEXT, hora TEXT, a TEXT, b TEXT, c TEXT, signo TEXT)')
+    return conn
 
-def obtener_datos(hora, dias_atras=0):
-    try:
-        fecha = (datetime.now() - timedelta(days=dias_atras)).strftime("%Y-%m-%d")
-        with sqlite3.connect("sorteos_lotería.db") as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT sorteo_a, sorteo_b, sorteo_c, zodiacal FROM resultados WHERE fecha=? AND hora_programada=?", (fecha, hora))
-            res = cursor.fetchone()
-            if res:
-                return f"A: {res[0]}\nB: {res[1]}\nC: {res[2]}\n⭐ {res[3].upper()} ⭐"
-            return "Esperando..." if dias_atras == 0 else "---"
-    except: return "---"
+def obtener_datos_dia(fecha, hora_etiqueta):
+    conn = conectar_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT a, b, c, signo FROM resultados WHERE fecha=? AND hora=?", (fecha, hora_etiqueta))
+    res = cursor.fetchone()
+    conn.close()
+    return res
 
-# --- INTERFAZ TÓMBOLA ---
-class TombolaVivo(tk.Toplevel):
-    def __init__(self, parent, hora_etiqueta, callback_actualizar):
-        super().__init__(parent)
-        self.callback_actualizar = callback_actualizar
-        self.attributes("-fullscreen", True)
-        self.configure(bg="#051a05")
-        self.attributes("-topmost", True)
-        self.hora_etiqueta = hora_etiqueta
-        
-        tk.Label(self, text="SORTEO EN VIVO", font=("Arial Black", 45), bg="#051a05", fg="#ccff00").pack(pady=40)
-        self.canvas = tk.Canvas(self, width=900, height=300, bg="#051a05", highlightthickness=0)
-        self.canvas.pack(pady=20)
-        self.bolas_ui = []
-        for i in range(3):
-            self.canvas.create_oval(50 + (i*280), 20, 250 + (i*280), 220, fill="#ffffff", outline="#ccff00", width=6)
-            txt = self.canvas.create_text(150 + (i*280), 120, text="?", font=("Arial Black", 90), fill="#1a3c1a")
-            self.bolas_ui.append(txt)
-        self.lbl_tipo = tk.Label(self, text="¡SUERTE!", font=("Arial Black", 35), bg="#051a05", fg="#ffff00")
-        self.lbl_tipo.pack(pady=50)
-        threading.Thread(target=self.iniciar_sorteo, daemon=True).start()
+# --- LÓGICA DE TIEMPO (VENEZUELA UTC-4) ---
+ahora = datetime.now() - timedelta(hours=4)
+fecha_hoy = ahora.strftime("%Y-%m-%d")
+h_labels = ["01:05 PM", "05:05 PM", "09:05 PM"]
+horarios_metas = ["13:05:00", "17:05:00", "21:05:00"]
 
-    def iniciar_sorteo(self):
-        signos = ["Aries", "Tauro", "Géminis", "Cáncer", "Leo", "Virgo", "Libra", "Escorpio", "Sagitario", "Capricornio", "Acuario", "Piscis"]
-        res_a, res_b, res_c = ["".join([str(random.randint(0, 9)) for _ in range(3)]) for _ in range(3)]
-        s_f = random.choice(signos)
-        datos = [res_a, res_b, res_c]
-        for idx, t in enumerate(["TRIPLE A", "TRIPLE B", "TRIPLE C"]):
-            self.lbl_tipo.config(text=f"SORTEANDO: {t}")
-            reproducir_sonido("giro.mp3", loops=-1)
-            for _ in range(15):
-                for b_idx in range(3): self.canvas.itemconfig(self.bolas_ui[b_idx], text=str(random.randint(0, 9)))
-                time.sleep(0.08)
-            detener_sonido()
-            for i, num in enumerate(datos[idx]):
-                self.canvas.itemconfig(self.bolas_ui[i], text=num)
-                reproducir_sonido("bola.mp3"); time.sleep(0.6)
-            time.sleep(1.5)
-        self.lbl_tipo.config(text="SORTEANDO SIGNO...")
-        reproducir_sonido("giro.mp3", loops=-1)
-        for _ in range(20):
-            self.lbl_tipo.config(text=f"SIGNO: {random.choice(signos).upper()}"); time.sleep(0.1)
-        detener_sonido()
-        self.lbl_tipo.config(text=f"GANADOR: {s_f.upper()}", fg="#ccff00"); reproducir_sonido("exito.mp3")
-        with sqlite3.connect("sorteos_lotería.db") as conn:
-            conn.execute("INSERT INTO resultados (fecha, hora_programada, sorteo_a, sorteo_b, sorteo_c, zodiacal) VALUES (?,?,?,?,?,?)",
-                         (datetime.now().strftime("%Y-%m-%d"), self.hora_etiqueta, res_a, res_b, res_c, s_f))
-        time.sleep(5); self.callback_actualizar(); self.destroy()
+# Contador regresivo
+futuros = [datetime.strptime(h, "%H:%M:%S").replace(year=ahora.year, month=ahora.month, day=ahora.day) for h in horarios_metas]
+futuros = [f if f > ahora else f + timedelta(days=1) for f in futuros]
+restante = int((min(futuros) - ahora).total_seconds())
 
-# --- INTERFAZ PRINCIPAL ---
-class AppPrincipal:
-    def __init__(self, root):
-        self.root = root
-        self.root.title("Triple Sapo - Monitor")
-        self.root.attributes("-fullscreen", True)
-        self.root.configure(bg="#1a3c1a")
-        self.root.bind("<Escape>", lambda e: self.root.destroy())
+# --- CABECERA ---
+try:
+    st.image("logo.png", width=350)
+except:
+    pass
 
-        # --- RELOJ SIMPLE (Sin marcos, solo texto) ---
-        # x=-150 para que esté bien adentro de la pantalla
-        self.lbl_reloj_simple = tk.Label(root, text="00:00:00 AM", font=("Arial", 30, "bold"), bg="#1a3c1a", fg="white")
-        self.lbl_reloj_simple.place(relx=1.0, x=-150, y=40, anchor="ne")
+st.markdown("<div class='titulo-grande'>TRIPLE SAPO</div>", unsafe_allow_html=True)
+st.markdown("<div class='subtitulo-grande'>LOTERÍA DE MARA</div>", unsafe_allow_html=True)
 
-        # Cabecera
-        self.frame_header = tk.Frame(root, bg="#1a3c1a")
-        self.frame_header.pack(pady=40, fill="x")
-        try:
-            self.img_logo = PhotoImage(file="logo.png").subsample(2, 2)
-            tk.Label(self.frame_header, image=self.img_logo, bg="#1a3c1a").pack(side="left", padx=60)
-            tk.Label(self.frame_header, image=self.img_logo, bg="#1a3c1a").pack(side="right", padx=60)
-        except: pass
+h_f, rem = divmod(restante, 3600)
+m_f, s_f = divmod(rem, 60)
+st.markdown(f"<div class='timer-digital'>{h_f:02d}:{m_f:02d}:{s_f:02d}</div>", unsafe_allow_html=True)
 
-        self.frame_titulo = tk.Frame(self.frame_header, bg="#1a3c1a")
-        self.frame_titulo.pack(expand=True)
-        tk.Label(self.frame_titulo, text="TRIPLE SAPO", font=("Arial Black", 55, "bold"), bg="#1a3c1a", fg="#ccff00").pack()
-        tk.Label(self.frame_titulo, text="DE SU LOTERÍA DE MARA", font=("Arial", 22, "italic", "bold"), bg="#1a3c1a", fg="#ffff00").pack()
+# --- RESULTADOS DE HOY ---
+st.markdown(f"<div class='fecha-banner'>📅 HOY: {ahora.strftime('%d/%m/%Y')}</div>", unsafe_allow_html=True)
 
-        self.lbl_timer = tk.Label(root, text="00:00:00", font=("Consolas", 100, "bold"), bg="#1a3c1a", fg="white")
-        self.lbl_timer.pack(pady=20)
+cols_hoy = st.columns(3)
+for i, h in enumerate(h_labels):
+    with cols_hoy[i]:
+        res = obtener_datos_dia(fecha_hoy, h)
+        st.markdown(f"<div class='hora-txt' style='color:{['#ffcc00','#00ffcc','#ff3366'][i]}'>{h}</div>", unsafe_allow_html=True)
+        if res:
+            st.markdown(f"<div class='res-linea'>A: {res[0]}</div><div class='res-linea'>B: {res[1]}</div><div class='res-linea'>C: {res[2]}</div><div class='res-signo'>{res[3].upper()}</div>", unsafe_allow_html=True)
+        else:
+            st.markdown("<p style='color:#444; font-style:italic; font-size:16px;'>Esperando...</p>", unsafe_allow_html=True)
 
-        # Resultados
-        self.cuadros_hoy = {}
-        self.horarios = [("01:05 PM", "#ffcc00"), ("05:05 PM", "#00ffcc"), ("09:05 PM", "#ff3366")]
-        f_hoy = tk.Frame(root, bg="#1a3c1a"); f_hoy.pack(pady=30)
-        for h, c in self.horarios:
-            f = tk.Frame(f_hoy, bg="#2d5a27", highlightbackground=c, highlightthickness=5, width=360, height=300)
-            f.pack_propagate(False); f.pack(side="left", padx=20)
-            tk.Label(f, text=h, font=("Arial", 20, "bold"), bg="#2d5a27", fg=c).pack(pady=15)
-            lbl = tk.Label(f, text="Esperando...", font=("Arial", 22, "bold"), bg="#2d5a27", fg="white")
-            lbl.pack(expand=True); self.cuadros_hoy[h] = lbl
+# --- HISTORIAL AUTOMÁTICO (Días pasados) ---
+st.markdown("<div class='seccion-historial'>📜 ÚLTIMOS RESULTADOS ANTERIORES</div>", unsafe_allow_html=True)
 
-        self.actualizar()
+for d in range(1, 6): # Ayer (1) hasta hace 5 días
+    fecha_past = (ahora - timedelta(days=d)).strftime("%Y-%m-%d")
+    fecha_visual = (ahora - timedelta(days=d)).strftime("%d/%m/%Y")
+    
+    # Revisar si hay algún dato ese día antes de poner el banner
+    res_check = obtener_datos_dia(fecha_past, h_labels[0]) or obtener_datos_dia(fecha_past, h_labels[1]) or obtener_datos_dia(fecha_past, h_labels[2])
+    
+    if res_check:
+        st.markdown(f"<div class='fecha-banner' style='font-size:18px; margin: 10px 0;'>DÍA: {fecha_visual}</div>", unsafe_allow_html=True)
+        cols_p = st.columns(3)
+        for i, h in enumerate(h_labels):
+            with cols_p[i]:
+                rp = obtener_datos_dia(fecha_past, h)
+                if rp:
+                    st.markdown(f"<div style='font-size:14px; font-weight:bold; color:#aaa;'>{h}</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div style='font-size:14px;'>A:{rp[0]} B:{rp[1]} C:{rp[2]}<br><b style='color:#ccff00'>{rp[3].upper()}</b></div>", unsafe_allow_html=True)
 
-    def actualizar(self):
-        ahora = datetime.now()
-        # Actualización del reloj simple
-        self.lbl_reloj_simple.config(text=ahora.strftime("%I:%M:%S %p"))
-        
-        metas = ["13:05:00", "17:05:00", "21:05:00"]
-        futuros = [datetime.strptime(h, "%H:%M:%S").replace(year=ahora.year, month=ahora.month, day=ahora.day) for h in metas]
-        futuros = [f if f > ahora else f + timedelta(days=1) for f in futuros]
-        diff = min(futuros) - ahora
-        s = int(diff.total_seconds())
-        self.lbl_timer.config(text=f"{s//3600:02d}:{(s%3600)//60:02d}:{s%60:02d}")
-        
-        for h in self.cuadros_hoy: self.cuadros_hoy[h].config(text=obtener_datos(h, 0))
-        self.root.after(1000, self.actualizar)
-
-def lanzar(hora): TombolaVivo(root, hora, app.actualizar)
-
-def loop():
-    schedule.every().day.at("13:05").do(lanzar, hora="01:05 PM")
-    schedule.every().day.at("17:05").do(lanzar, hora="05:05 PM")
-    schedule.every().day.at("21:05").do(lanzar, hora="09:05 PM")
-    while True: schedule.run_pending(); time.sleep(1)
-
-if __name__ == "__main__":
-    inicializar_db()
-    root = tk.Tk(); app = AppPrincipal(root)
-    threading.Thread(target=loop, daemon=True).start()
-    root.mainloop()
+# --- SORTEO AUTOMÁTICO ---
+for idx, h_m in enumerate(horarios_metas):
+    t_s = datetime.strptime(h_m, "%H:%M:%S").replace(year=ahora.year, month=ahora.month, day=ahora.day)
+    if ahora > (t_s + timedelta(seconds=10)) and not obtener_datos_dia(fecha_hoy, h_labels[idx]):
+        a, b, c = [f"{random.randint(0,999):03d}" for _ in range(3)]
+        z = random.choice(["Aries", "Tauro", "Géminis", "Cáncer", "Leo", "Virgo", "Libra", "Escorpio", "Sagitario", "Capricornio", "Acuario", "Piscis"])
+        with conectar_db() as db:
+            db.execute("INSERT INTO resultados (fecha, hora, a, b, c, signo) VALUES (?,?,?,?,?,?)", (fecha_hoy, h_labels[idx], a, b, c, z))
+        st.rerun()
