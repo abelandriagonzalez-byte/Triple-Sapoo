@@ -18,8 +18,8 @@ ahora = datetime.now(tz_vzla)
 fecha_hoy = ahora.strftime("%Y-%m-%d")
 
 # Horarios exactos de los sorteos
-h_labels = ["01:05 PM", "05:05 PM", "09:05 PM"]
-horarios_metas = ["13:05:00", "17:05:00", "21:05:00"]
+h_labels = ["01:05 PM", "05:05 PM", "10:41 PM"]
+horarios_metas = ["13:05:00", "17:05:00", "22:41:00"]
 
 # --- ESTILOS CSS ---
 st.markdown("""
